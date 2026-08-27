@@ -14,7 +14,7 @@ from decode.decoder import advanced_decode_packet
 >>>>>>> dd84543 (feat(validation): integrate meaning validation, benchmarks, and test suite)
 =======
 # Task 1: Import isolated Semantic Encoder
-from encoder.encoder import (
+from app.encoder import (
     encode_message_logic,
     extract_negations,
     SAFETY_KEYWORDS,
