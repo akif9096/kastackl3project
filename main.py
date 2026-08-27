@@ -8,7 +8,10 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import spacy
 
+<<<<<<< HEAD
 from decode.decoder import advanced_decode_packet
+=======
+>>>>>>> dd84543 (feat(validation): integrate meaning validation, benchmarks, and test suite)
 
 # Load spaCy local model (fallback to lightweight regex parser in Low-Resource Mode)
 try:
