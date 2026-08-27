@@ -1,9 +1,14 @@
 import re
+import importlib
+import importlib.util
 from typing import Dict, Any, List, Optional
 
+# Optional spaCy integration for normal mode enhancement
+nlp = None
 try:
-    import spacy
-    nlp = spacy.load("en_core_web_sm")
+    if importlib.util.find_spec("spacy") is not None:
+        spacy_module = importlib.import_module("spacy")
+        nlp = spacy_module.load("en_core_web_sm")
 except Exception:
     nlp = None
 
@@ -27,22 +32,21 @@ KNOWN_PERSONS = [
 
 KNOWN_LOCATIONS = [
     r"\b(Pune|Mumbai|Delhi|Bengaluru|Chennai|Hyderabad|Kolkata)\b",
-    r"\b(Gate\s+[0-9A-Za-z]+)\b",
-    r"\b(Room\s+[0-9A-Za-z]+)\b",
-    r"\b(Desk\s+[0-9A-Za-z]+)\b",
-    r"\b(Platform\s+[0-9A-Za-z]+)\b",
-    r"\b(Pillar\s+[0-9A-Za-z]+(?:\s+on\s+Level\s+[0-9A-Za-z]+)?)\b",
-    r"\b(Level\s+[0-9A-Za-z]+)\b",
-    r"\b(House\s+[0-9A-Za-z]+)\b",
-    r"\b(Shelf\s+[0-9A-Za-z]+)\b",
+    r"\b(Gate\s+(?:\d+[A-Za-z]?|[A-Z]\b))\b",
+    r"\b(Room\s+(?:\d+[A-Za-z]?|[A-Z]\b))\b",
+    r"\b(Desk\s+(?:\d+[A-Za-z]?|[A-Z]\b))\b",
+    r"\b(Platform\s+(?:\d+[A-Za-z]?|[A-Z]\b))\b",
+    r"\b(Pillar\s+\d+(?:\s+on\s+Level\s+\d+)?)\b",
+    r"\b(Level\s+\d+)\b",
+    r"\b(House\s+\d+)\b",
+    r"\b(Shelf\s+\d+)\b",
     r"\b(Entrance\s+[0-9A-Za-z]+)\b",
-    r"\b(Sector\s+[0-9A-Za-z]+)\b",
+    r"\b(Sector\s+\d+)\b",
     r"\b(Zone\s+[0-9A-Za-z]+)\b",
     r"\b(Warehouse\s+[0-9A-Za-z]+)\b",
-    r"\b(Base\s+[0-9A-Za-z]+)\b",
     r"\b(Conference\s+Room\s+[0-9A-Za-z]+)\b",
-    r"\b(Terminal\s+[0-9A-Za-z]+)\b",
-    r"\b(Clinic\s+[0-9A-Za-z]+)\b",
+    r"\b(Terminal\s+\d+)\b",
+    r"\b(Clinic\s+\d+)\b",
     r"\b(City\s+Hospital)\b",
     r"\b(Central\s+Market)\b",
     r"\b(Spice\s+Garden)\b",
@@ -51,8 +55,10 @@ KNOWN_LOCATIONS = [
     r"\b(railway\s+station)\b",
     r"\b(second-floor\s+lounge)\b",
     r"\b(finance\s+office)\b",
+    r"\b(kitchen)\b",
     r"\b(office)\b",
     r"\b(reception)\b",
+    r"\b(room)\b",
     r"\b(lab)\b",
     r"\b(depot)\b",
     r"\b(bus\s+stop)\b",
@@ -94,6 +100,9 @@ def extract_negations(text: str) -> List[str]:
     Extracts canonical negation clauses.
     Removes overlapping substring duplicates to minimize packet size.
     """
+    if not text or not isinstance(text, str):
+        return []
+
     negation_patterns = [
         r"\bdo not\b[^\.\,\;\!\?]*", r"\bdon\'t\b[^\.\,\;\!\?]*", r"\bnever\b[^\.\,\;\!\?]*",
         r"\bnot\b[^\.\,\;\!\?]*", r"\bno\b\s+\w+", r"\bexcept\b[^\.\,\;\!\?]*", r"\bavoid\b[^\.\,\;\!\?]*",
@@ -122,11 +131,14 @@ def extract_negations(text: str) -> List[str]:
     return selected_strings
 
 
-def encode_message_logic(text: str, mode: str = "normal") -> Dict[str, Any]:
+def encode_message_logic(text: str, mode: Optional[str] = "normal") -> Dict[str, Any]:
     """
     Task 1: Semantic Encoder Core Logic.
     Extracts structured meaning into the canonical semantic packet contract.
+    Guarantees zero hallucination and robust fallback handling.
     """
+    mode = (mode or "normal").lower()
+    
     packet: Dict[str, Any] = {
         "urg": "normal",
         "safe_crit": False,
@@ -135,6 +147,9 @@ def encode_message_logic(text: str, mode: str = "normal") -> Dict[str, Any]:
         "act": []
     }
     
+    if not text or not isinstance(text, str) or not text.strip():
+        return packet
+
     # 1. Safety & Urgency Detection
     text_lower = text.lower()
     if any(k in text_lower for k in SAFETY_KEYWORDS):
@@ -157,11 +172,15 @@ def encode_message_logic(text: str, mode: str = "normal") -> Dict[str, Any]:
                 proper_name = person.title() if person != "dr. shah" else "Dr. Shah"
                 packet["ent"]["per"].append(proper_name)
 
-    # Extract Locations
-    for loc_pat in KNOWN_LOCATIONS:
+    # Extract Locations (sorted by length to match specific locations before generic words)
+    matched_loc_spans = []
+    for loc_pat in sorted(KNOWN_LOCATIONS, key=len, reverse=True):
         for match in re.finditer(loc_pat, text, re.IGNORECASE):
-            loc_str = match.group(1).strip()
-            packet["ent"]["loc"].append(loc_str)
+            s, e = match.span(1)
+            if not any(sel_s <= s and e <= sel_e for sel_s, sel_e in matched_loc_spans):
+                matched_loc_spans.append((s, e))
+                loc_str = match.group(1).strip()
+                packet["ent"]["loc"].append(loc_str)
 
     # Extract Objects
     for obj in sorted(COMMON_OBJECTS, key=len, reverse=True):
@@ -174,17 +193,18 @@ def encode_message_logic(text: str, mode: str = "normal") -> Dict[str, Any]:
 
     # Extract Quantities
     qty_matches = re.findall(
-        r"\b(?:₹|\$|€)?\d+(?:\.\d+)?\s*(?:ml|l|litres|kg|g|metres|meters|km|mb|kb|%|°c|bottles|packets?|packages?|crates?|boxes|meals|passengers|readings|images|masks|minutes?|seconds?|pages?|units?)?\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|forty)\s+[a-zA-Z%°]+\b",
+        r"\b(?:₹|\$|€)?\d+(?:\.\d+)?(?:\s*(?:ml|l|litres|kg|g|metres|meters|km|mb|kb|%|°c|bottles|packets?|packages?|crates?|boxes|meals|passengers|readings|images|masks|minutes?|seconds?|pages?|units?))?|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|forty)\s+[a-zA-Z%°]+\b",
         text,
         re.IGNORECASE,
     )
     for q in qty_matches:
         q_clean = q.strip()
-        # Ensure time values like 5 PM are not counted as standalone quantities
-        if not any(q_clean in t for t in packet["ent"]["time"]):
-            # Also exclude numbers that are part of location names like 'Gate 2'
-            if not any(q_clean in loc for loc in packet["ent"]["loc"]):
-                packet["ent"]["qty"].append(q_clean)
+        if q_clean:
+            # Ensure time values like 5 PM are not counted as standalone quantities
+            if not any(q_clean in t for t in packet["ent"]["time"]):
+                # Also exclude numbers that are part of location names like 'Gate 2'
+                if not any(q_clean in loc for loc in packet["ent"]["loc"]):
+                    packet["ent"]["qty"].append(q_clean)
 
     # Extract Actions (Verbs)
     for verb in ACTION_VERBS:
