@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 # Task 1: Import isolated Semantic Encoder
-from encoder.encoder import (
+from app.encoder import (
     encode_message_logic,
     extract_negations,
     SAFETY_KEYWORDS,
