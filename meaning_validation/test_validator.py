@@ -9,7 +9,15 @@ Two properties this suite exists to prove, in this order:
 No message from semantic_messages.csv is hardcoded as an expected result.
 """
 
-from validator import validate, extract_facts
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+try:
+    from .validator import validate, extract_facts
+except ImportError:
+    from validator import validate, extract_facts
 
 PASS, FAIL = "\033[32mPASS\033[0m", "\033[31mFAIL\033[0m"
 _score = [0, 0]

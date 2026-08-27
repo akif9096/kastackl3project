@@ -1,14 +1,17 @@
 import csv
-from validator import validate
+from pathlib import Path
 
-CSV_PATH = "semantic_messages.csv"
-OUTPUT_PATH = "validation_report.csv"
+from .validator import validate
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+CSV_PATH = BASE_DIR / "data" / "semantic_messages.csv"
+OUTPUT_PATH = BASE_DIR / "validation_report.csv"
 
 def run_csv_validation():
     passed, review, failed = 0, 0, 0
     results = []
 
-    with open(CSV_PATH, mode="r", encoding="utf-8") as f:
+    with CSV_PATH.open(mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
 
@@ -47,7 +50,7 @@ def run_csv_validation():
             results.append(row_result)
 
     # Save detailed output report
-    with open(OUTPUT_PATH, mode="w", encoding="utf-8", newline="") as f:
+    with OUTPUT_PATH.open(mode="w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["row", "original", "reconstructed", "status", "summary", "issue_count"])
         writer.writeheader()
         writer.writerows(results)

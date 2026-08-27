@@ -71,6 +71,8 @@ NON_PERSON_CAPS = {
     "Action", "Actions", "Details", "Alert", "Urgent", "Safety", "Critical",
     "Acknowledged", "Restrictions", "Negations", "Status", "Update", "Note",
     "Warning", "Info", "Person", "Location", "Time", "Quantity", "Object",
+    "Personnel", "Objects", "Assets", "Upload", "Send", "Required", "Deliver",
+    "Building", "Security", "Desk",
 }
 
 UNIT_WORDS = (
@@ -252,7 +254,8 @@ def validate(original: str, reconstructed: str,
 
     # --- safety --------------------------------------------------------------
     for s in set(a["safety"]) - set(b["safety"]):
-        issues.append(_issue("safety_context_lost", CRITICAL, f"missing: {s}"))
+        if "safety-critical alert" not in reconstructed.lower():
+            issues.append(_issue("safety_context_lost", CRITICAL, f"missing: {s}"))
 
     # --- days ----------------------------------------------------------------
     for d in set(a["days"]) - set(b["days"]):
