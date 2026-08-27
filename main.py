@@ -6,15 +6,38 @@ import sqlite3
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import spacy
 
-from decode.decoder import advanced_decode_packet
+# Task 1: Import isolated Semantic Encoder
+from encoder.encoder import (
+    encode_message_logic,
+    extract_negations,
+    SAFETY_KEYWORDS,
+)
 
-# Load spaCy local model (fallback to lightweight regex parser in Low-Resource Mode)
+# Task 2: Import isolated Semantic Decoder
 try:
-    nlp = spacy.load("en_core_web_sm")
-except Exception:
-    nlp = None
+    from decode.decoder import advanced_decode_packet
+except ImportError:
+    def advanced_decode_packet(packet: Dict[str, Any]) -> str:
+        parts = []
+        if packet.get("safe_crit"):
+            parts.append("🚨 [SAFETY-CRITICAL ALERT]")
+        if packet.get("urg") == "high":
+            parts.append("⚠️ [URGENT]")
+        actions = packet.get("act", [])
+        if actions:
+            parts.append(f"Action(s): {', '.join(actions)}.")
+        entities = packet.get("ent", {})
+        ent_strs = []
+        for etype, values in entities.items():
+            if values:
+                ent_strs.append(f"{etype.upper()}: {', '.join(values)}")
+        if ent_strs:
+            parts.append(f"Details -> {' | '.join(ent_strs)}.")
+        negations = packet.get("neg", [])
+        if negations:
+            parts.append(f"RESTRICTIONS: {'; '.join(negations)}.")
+        return " ".join(parts) if parts else "Acknowledge: System status normal."
 
 app = FastAPI(title="Semantic Communication Engine", version="1.0.0")
 
@@ -46,7 +69,7 @@ def init_db():
 
 init_db()
 
-# --- Schemas ---
+# --- Request / Response Schemas ---
 
 class EncodeRequest(BaseModel):
     message_id: Optional[str] = "CUSTOM"
@@ -61,108 +84,7 @@ class ValidateRequest(BaseModel):
     reconstructed: str
     packet: Optional[Dict[str, Any]] = None
 
-# --- Semantic Parsing Core ---
-
-SAFETY_KEYWORDS = {"gas", "smoke", "fire", "unconscious", "swelling", "emergency", "flammable", "alarm", "leak", "insulation"}
-URGENCY_KEYWORDS = {"immediately", "urgent", "soon", "now", "emergency", "fast", "asap"}
-
-def extract_negations(text: str) -> List[str]:
-    negation_patterns = [
-        r"\bdo not\b[^\.\,\;]*", r"\bdon\'t\b[^\.\,\;]*", r"\bnever\b[^\.\,\;]*",
-        r"\bnot\b[^\.\,\;]*", r"\bno\b\s+\w+", r"\bexcept\b[^\.\,\;]*", r"\bavoid\b[^\.\,\;]*"
-    ]
-    matches = []
-    for pat in negation_patterns:
-        found = re.findall(pat, text, flags=re.IGNORECASE)
-        matches.extend([f.strip() for f in found])
-    return list(set(matches))
-
-def encode_message_logic(text: str, mode: str) -> Dict[str, Any]:
-    packet = {
-        "urg": "normal",
-        "safe_crit": False,
-        "neg": [],
-        "ent": {"per": [], "loc": [], "time": [], "qty": [], "obj": []},
-        "act": []
-    }
-    
-    # 1. Safety & Urgency Detection
-    text_lower = text.lower()
-    if any(k in text_lower for k in SAFETY_KEYWORDS):
-        packet["safe_crit"] = True
-        packet["urg"] = "high"
-    elif any(k in text_lower for k in URGENCY_KEYWORDS):
-        packet["urg"] = "high"
-
-    # 2. Negation Detection
-    packet["neg"] = extract_negations(text)
-
-    # 3. Mode-based Entity and Action Extraction
-    if mode == "normal" and nlp is not None:
-        doc = nlp(text)
-        for ent in doc.ents:
-            if ent.label_ in ["PERSON"]:
-                packet["ent"]["per"].append(ent.text)
-            elif ent.label_ in ["GPE", "LOC", "FAC"]:
-                packet["ent"]["loc"].append(ent.text)
-            elif ent.label_ in ["TIME", "DATE"]:
-                packet["ent"]["time"].append(ent.text)
-            elif ent.label_ in ["CARDINAL", "QUANTITY"]:
-                packet["ent"]["qty"].append(ent.text)
-            elif ent.label_ in ["PRODUCT", "ORG", "WORK_OF_ART"]:
-                packet["ent"]["obj"].append(ent.text)
-
-        for token in doc:
-            if token.pos_ in ["VERB"] and not token.is_stop:
-                packet["act"].append(token.lemma_)
-    else:
-        # Low-Resource Mode: Fast Regex Heuristics
-        times = re.findall(r"\b\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)?\b", text)
-        numbers = re.findall(r"\b\d+(?:\.\d+)?\b", text)
-        packet["ent"]["time"] = times
-        packet["ent"]["qty"] = numbers
-        
-        # Simple verb extraction heuristic
-        words = re.findall(r"\b[A-Za-z]{3,}\b", text)
-        packet["act"] = [w.lower() for w in words[:4]]
-
-    # Deduplicate arrays
-    for k in packet["ent"]:
-        packet["ent"][k] = list(set(packet["ent"][k]))
-    packet["act"] = list(set(packet["act"]))
-
-    return packet
-
-# def decode_packet_logic(packet: Dict[str, Any]) -> str:
-#     parts = []
-    
-#     if packet.get("safe_crit"):
-#         parts.append("[ALERT: SAFETY-CRITICAL]")
-#     if packet.get("urg") == "high":
-#         parts.append("[URGENT]")
-
-#     actions = packet.get("act", [])
-#     if actions:
-#         parts.append(f"Action(s): {', '.join(actions)}.")
-
-#     entities = packet.get("ent", {})
-#     ent_strs = []
-#     for etype, values in entities.items():
-#         if values:
-#             ent_strs.append(f"{etype.upper()}: {', '.join(values)}")
-#     if ent_strs:
-#         parts.append(f"Details -> {' | '.join(ent_strs)}.")
-
-#     negations = packet.get("neg", [])
-#     if negations:
-#         parts.append(f"RESTRICTIONS/NEGATIONS: {'; '.join(negations)}.")
-
-#     if not parts:
-#         return "Acknowledged status / update."
-
-#     return " ".join(parts)
-
-# --- Validation Logic ---
+# --- Meaning Validation Logic (Task 3) ---
 
 def validate_reconstruction(original: str, reconstructed: str, packet: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     issues = []
@@ -173,9 +95,8 @@ def validate_reconstruction(original: str, reconstructed: str, packet: Optional[
     orig_negs = extract_negations(original)
     if orig_negs:
         for neg in orig_negs:
-            # Check key negative markers
             words = set(re.findall(r"\b\w+\b", neg.lower()))
-            if not any(w in recon_lower for w in ["not", "never", "don't", "no", "except", "avoid", "restrictions"]):
+            if not any(w in recon_lower for w in ["not", "never", "don't", "no", "except", "avoid", "restriction", "restrictions"]):
                 issues.append(f"Missing critical negation context: '{neg}'")
 
     # Numeric/Quantity Check
@@ -186,7 +107,7 @@ def validate_reconstruction(original: str, reconstructed: str, packet: Optional[
 
     # Safety Keyword Check
     for word in SAFETY_KEYWORDS:
-        if word in orig_lower and word not in recon_lower and "[alert: safety-critical]" not in recon_lower:
+        if word in orig_lower and word not in recon_lower and "[safety-critical" not in recon_lower and "[alert:" not in recon_lower:
             issues.append(f"Missing critical safety alert keyword: '{word}'")
 
     if not issues:
@@ -198,11 +119,12 @@ def validate_reconstruction(original: str, reconstructed: str, packet: Optional[
 
 # --- API Endpoints ---
 
+# TASK 1: SEMANTIC ENCODER ENDPOINT
 @app.post("/encode")
 def encode_message(payload: EncodeRequest):
     start_time = time.perf_counter()
     
-    packet = encode_message_logic(payload.message, payload.mode)
+    packet = encode_message_logic(payload.message, payload.mode or "normal")
     
     # Calculate sizes
     orig_bytes = len(payload.message.encode("utf-8"))
@@ -226,13 +148,12 @@ def encode_message(payload: EncodeRequest):
         }
     }
 
+# TASK 2: DECODER ENDPOINT
 @app.post("/decode")
 def decode_message(payload: DecodeRequest):
     start_time = time.perf_counter()
     
-    # USE THE NEW DECODER HERE
     reconstructed = advanced_decode_packet(payload.packet)
-    
     dec_latency = (time.perf_counter() - start_time) * 1000
 
     return {
@@ -241,14 +162,16 @@ def decode_message(payload: DecodeRequest):
             "latency_ms": round(dec_latency, 3)
         }
     }
+
+# TASK 3: MEANING VALIDATION ENDPOINT
 @app.post("/validate")
 def validate_meaning(payload: ValidateRequest):
     result = validate_reconstruction(payload.original, payload.reconstructed, payload.packet)
     return result
 
+# TASK 4: END-TO-END BENCHMARK EXECUTION ENDPOINT
 @app.post("/process-end-to-end")
 def process_end_to_end(payload: EncodeRequest):
-    # Complete workflow for quick execution & benchmark logging
     enc_res = encode_message(payload)
     dec_res = decode_message(DecodeRequest(packet=enc_res["semantic_packet"]))
     val_res = validate_meaning(ValidateRequest(
