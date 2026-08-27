@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import spacy
 
+
 # Load spaCy local model (fallback to lightweight regex parser in Low-Resource Mode)
 try:
     nlp = spacy.load("en_core_web_sm")

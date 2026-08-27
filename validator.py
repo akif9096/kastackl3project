@@ -40,6 +40,11 @@ PROHIBITION_CUES = [
     r"\bdo not\b", r"\bdon'?t\b", r"\bnever\b", r"\bcannot\b", r"\bcan'?t\b",
     r"\bwon'?t\b", r"\bmust not\b", r"\bavoid\b", r"\brefrain from\b",
     r"\bhold off\b", r"\bstop using\b",
+    # Label forms. A decoder may render a prohibition as a field label rather
+    # than as English ("RESTRICTION: red pouch"). Without these, a structured
+    # reconstruction gets falsely reported as negation_lost.
+    r"\bprohibited\b", r"\brestrictions?\b", r"\bnegations?\b", r"\bforbidden\b",
+    r"\bexcluded\b", r"\bnot allowed\b", r"\bblocked\b",
 ]
 CONTRAST_CUES = [r",\s*not\b", r"\bnot the\b", r"\brather than\b", r"\binstead of\b"]
 EXCEPTION_CUES = [r"\bexcept\b", r"\bunless\b"]

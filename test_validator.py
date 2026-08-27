@@ -96,5 +96,47 @@ print("\n6. TIME NORMALISATION — same instant, different notation")
 check("4:30 PM == 16:30", extract_facts("at 4:30 PM")["times"] == extract_facts("at 16:30")["times"])
 check("noon == 12:00", extract_facts("by noon")["times"] == extract_facts("by 12:00")["times"])
 
+print("\n7. DECODER OUTPUT STYLES — validation must survive B's formatting")
+ORIG = "Bring the blue insulin pouch to City Hospital before 6 PM; do not bring the red pouch."
+styles = [
+    ("natural sentence",
+     "Do not bring the red pouch. Bring the blue insulin pouch to City Hospital before 18:00."),
+    ("label prefix",
+     "PROHIBITED: bring the red pouch. Bring the blue insulin pouch to City Hospital before 6 PM."),
+    ("restriction label",
+     "Bring the blue insulin pouch to City Hospital before 6 PM. RESTRICTION: red pouch."),
+    ("structured dump",
+     "Action: bring | Object: blue insulin pouch | Location: City Hospital | "
+     "Time: 18:00 | Negation: red pouch"),
+]
+for label, recon in styles:
+    check(f"{label:20s} not falsely failed", validate(ORIG, recon)["status"] != "failed")
+
+print("\n8. PIPELINE INTEGRATION — end to end through the live app")
+try:
+    from main import process_end_to_end, EncodeRequest, health
+    src = health()
+    print(f"     (encoder={src['encoder']}, decoder={src['decoder']})")
+
+    r = process_end_to_end(EncodeRequest(
+        message_id="T1", mode="normal",
+        message="Do not upload the customer file; send only the anonymized summary."))
+    check("end-to-end returns a verdict", r["validation"]["status"] in
+          ("safe", "review required", "failed"))
+    check("negation survives the round trip",
+          r["validation"]["checks"]["negation"]["reconstructed"] != "none")
+    check("benchmark metrics present",
+          {"encode_latency_ms", "decode_latency_ms", "compression_percentage"}
+          <= set(r["benchmark"]))
+
+    lo = process_end_to_end(EncodeRequest(
+        message_id="T2", mode="low_resource",
+        message="Meet Riya outside Gate 2 at 4:30 PM today."))
+    check("low-resource mode never reports failed", lo["validation"]["status"] != "failed")
+    check("low-resource keeps the time (critical slot)",
+          lo["validation"]["checks"]["times"]["reconstructed"] == [990])
+except ImportError as e:
+    print(f"     skipped, main.py not importable: {e}")
+
 print(f"\n{'=' * 52}\n  {_score[0]} passed, {_score[1]} failed\n{'=' * 52}")
 raise SystemExit(1 if _score[1] else 0)
