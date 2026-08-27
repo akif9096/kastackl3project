@@ -10,7 +10,7 @@ An intelligent, bandwidth-efficient semantic communication pipeline designed to 
 Traditional communication pipelines optimize for bit-level fidelity, which wastes bandwidth on syntactic fluff. This system operates at the **Semantic Level**, transmitting compact semantic representations and reconstructing natural language at the receiver while enforcing a strict **Meaning Validation Gate** and **Automated Benchmarking Suite**.
 
 ```text
-[ Raw Message (data/semantic_messages.csv) ]
+                       [ Raw Message (data/semantic_messages.csv) ]
                                             │
                                             ▼
                        ┌──────────────────────────────────────────┐
