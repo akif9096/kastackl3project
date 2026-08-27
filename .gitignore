@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 venv/
 .venv/
 env/
@@ -6,3 +7,9 @@ __pycache__/
 *.db
 *.sqlite
 validation_report.csv
+=======
+*.db
+__pycache__/
+.pytest_cache/
+.env
+>>>>>>> c613daa9490aeab0dafdffbf0d8d3b1b07cd82cd
